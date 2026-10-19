@@ -6,7 +6,7 @@ It covers the whole pipeline:
 
 1. **Annotation:** frames are extracted from video, pre-labelled with an open-vocabulary model (YOLO-World), then corrected by hand in a local web tool.
 2. **Training:** YOLOv8s is fine-tuned on the reviewed labels.
-3. **Inference (C++):** ONNX Runtime (CUDA) and OpenCV draw live detections, record the annotated video and log distances.
+3. **Inference (C++):** ONNX Runtime (TensorRT FP16, falling back to CUDA) and OpenCV draw live detections, record the annotated video and log distances.
 4. **Distance:** monocular estimation from ground-plane geometry and known object size, with a dynamic horizon, automatic camera-height estimation and per-object tracking.
 5. **Lens calibration (C++):** checkerboard calibration that writes the camera's focal length and lens distortion into the config.
 
@@ -99,9 +99,11 @@ The best weights are saved to `model_training/weights/best.pt`. On Windows the d
 
 ```powershell
 python src\export_onnx.py                                        # best.onnx + best_fp16.onnx
-powershell -ExecutionPolicy Bypass -File src\setup_deps.ps1      # once
+powershell -ExecutionPolicy Bypass -File src\setup_deps.ps1 -TensorRT   # once (omit -TensorRT for CUDA only)
 powershell -ExecutionPolicy Bypass -File src\build.ps1
 ```
+
+With `-TensorRT`, TensorRT 10.16 (a 2.2 GB download) is extracted into `third_party/tensorrt`. The first run then builds an FP16 engine, which takes about a minute, and caches it in `model_training/weights/trt_cache/`. Delete that folder after re-exporting the model or upgrading the GPU driver or TensorRT.
 
 ### 4. Calibrate the lens (once per camera)
 
@@ -124,7 +126,7 @@ This plays every video in `videos/` in a live window. Space pauses, N skips to t
 - `inference_output/<video>_inference.mp4`: the annotated video;
 - `inference_output/<video>_distances.csv`: one row per detection (track id, class, confidence, box, ground-plane, size, fused and smoothed distance, uncertainty, horizon, pitch, camera height).
 
-Options: `--source`, `--conf`, `--iou`, `--camera`, `--debug-lanes`, `--no-show`, `--cpu`. See [src/README.md](src/README.md).
+Options: `--source`, `--conf`, `--iou`, `--camera`, `--provider auto|tensorrt|cuda|cpu`, `--debug-lanes`, `--no-show`. See [src/README.md](src/README.md).
 
 ---
 
@@ -155,7 +157,7 @@ These were measured on the five development clips (1280×720) and need confirmin
 | Validation (held-out `obstacle_course_trial2` clip) | best mAP50 **0.535**, mAP50-95 0.277, precision 0.576, recall 0.469 (epoch 16 of 46, early-stopped) |
 | Stronger classes | cones, people, model houses |
 | Weak classes | barriers (very few labels); chairs (low confidence) |
-| C++ inference speed | about 16 ms per frame end to end, FP16 on CUDA (pre-processing 2 ms, model 14 ms, post-processing 0.3 ms) |
+| C++ inference speed | **TensorRT FP16: about 9.7 ms per frame** (model 7.2 ms, about 100 FPS); CUDA FP16: about 17.7 ms (model 15.8 ms) |
 | Distance consistency | size and ground-plane estimates agree within about ±5% on cones (partly by design of the auto camera height); **absolute accuracy not yet validated** |
 | Lens calibration | validated on synthetic data: fx recovered within 0.2%, k1 within 1%, 0.28 px RMS |
 
@@ -170,5 +172,4 @@ These were measured on the five development clips (1280×720) and need confirmin
 ## Data protection
 
 Some clips and frames show an identifiable person. Treat videos, extracted frames, inference outputs and calibration previews as **personal data under UK/EU GDPR**. Keep them internal, ensure there is consent or another lawful basis, and blur faces before sharing outside the team. The `.gitignore` excludes them from the repository; keep it that way.
-#   o b j e c t - d e t e c t i o n - d i s t a n c e - e s t i m a t i o n -  
- 
+# object-detection-distance-estimation-

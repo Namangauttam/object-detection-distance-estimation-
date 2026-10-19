@@ -1,14 +1,32 @@
 # C++ video inference (g++ / MSYS2)
 
-`yolo_infer.exe` runs the fine-tuned YOLOv8s model on the videos using ONNX Runtime (CUDA) and OpenCV. It shows the detections live in a window and saves annotated copies to `inference_output/<video>_inference.mp4`.
+`yolo_infer.exe` runs the fine-tuned YOLOv8s model on the videos using ONNX Runtime (TensorRT or CUDA) and OpenCV. It shows the detections live in a window and saves annotated copies to `inference_output/<video>_inference.mp4`.
 
 ## One-time setup
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File src\setup_deps.ps1   # MSYS2 packages + ONNX Runtime GPU
+powershell -ExecutionPolicy Bypass -File src\setup_deps.ps1 -TensorRT   # MSYS2 packages + ONNX Runtime GPU + TensorRT
 ```
 
 This installs into MSYS2 UCRT64 (`C:\msys64`): g++, OpenCV, Qt6 (used by OpenCV's window), Ninja and pkgconf. It also downloads ONNX Runtime GPU into `third_party/onnxruntime`. The CUDA 12 and cuDNN 9 DLLs come from your PyTorch install, so no separate CUDA install is needed.
+
+`-TensorRT` also downloads TensorRT 10.16 (2.2 GB) and extracts its DLLs (3.2 GB) into `third_party/tensorrt`. They go on the project drive, not the system drive. TensorRT is optional: without it the app uses CUDA.
+
+## TensorRT
+
+With TensorRT installed, `--provider auto` (the default) uses ONNX Runtime's TensorRT provider:
+
+- It builds an **FP16 engine** from `best.onnx`. This takes about a minute and happens once.
+- The engine is cached in `model_training/weights/trt_cache/` and loaded in a few seconds on later runs.
+- Any layer TensorRT can't handle runs on CUDA instead.
+- If TensorRT fails to load, the app falls back to CUDA, then to the CPU.
+
+The engine is tied to the GPU, the driver, the TensorRT version and the model. **Delete `trt_cache/` after re-exporting the model** so it gets rebuilt.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File src\run.ps1 --provider tensorrt   # force TensorRT
+powershell -ExecutionPolicy Bypass -File src\run.ps1 --provider cuda       # CUDA only (uses best_fp16.onnx)
+```
 
 ## Export the model (after each training run)
 
@@ -25,14 +43,16 @@ powershell -ExecutionPolicy Bypass -File src\build.ps1
 powershell -ExecutionPolicy Bypass -File src\run.ps1                       # all videos, live window and saved copies
 powershell -ExecutionPolicy Bypass -File src\run.ps1 --source videos\cones_edited_4x.mp4 --conf 0.35
 powershell -ExecutionPolicy Bypass -File src\run.ps1 --no-show             # save only
-powershell -ExecutionPolicy Bypass -File src\run.ps1 --cpu                 # CPU fallback (about 270 ms per frame)
+powershell -ExecutionPolicy Bypass -File src\run.ps1 --provider cpu      # CPU fallback (about 210-270 ms per frame)
 ```
 
-Options: `--model PATH`, `--source DIR|FILE`, `--out DIR`, `--conf 0.25`, `--iou 0.45`, `--camera src/camera.yaml`, `--debug-lanes`, `--no-show`, `--cpu`.
+Options: `--model PATH`, `--source DIR|FILE`, `--out DIR`, `--conf 0.25`, `--iou 0.45`, `--camera src/camera.yaml`, `--provider auto|tensorrt|cuda|cpu` (`--cpu` is short for `--provider cpu`), `--debug-lanes`, `--no-show`.
 
 Window keys: **Space** pauses, **N** skips to the next video, **Q** or **Esc** quits.
 
 ## Lens calibration
+
+The tool needs a short video (or a folder of videos or photos) of a printed checkerboard, filmed with your camera.
 
 ```powershell
 # 1. Make a board, print it at 100% scale, tape it flat to something rigid
@@ -71,14 +91,17 @@ How it works ([distance.cpp](distance.cpp)):
 
 Expect the error to grow with distance, because a fixed pixel error covers more metres further away. Slopes and humps break the flat-road assumption. If the videos come from different cars or mounts, give each its own `camera.yaml` via `--camera`.
 
-## Performance (RTX 5050 laptop, 1280 px input, FP16)
+## Performance (RTX 5050 laptop, 1280 px input, `house` clip, measured back to back)
 
-| Stage | Time per frame |
-|---|---|
-| Pre-process (letterbox, CHW) | ~2 ms |
-| Model (ONNX Runtime CUDA) | ~14 ms |
-| Post-process (decode, NMS) | ~0.3 ms |
-| **Total** | **~16 ms (about 60 FPS headroom)** |
+| Stage | TensorRT FP16 | CUDA FP16 |
+|---|---|---|
+| Pre-process (letterbox, CHW) | 2.4 ms | 1.8 ms |
+| Model | **7.2 ms** | 15.8 ms |
+| Post-process (decode, NMS) | 0.1 ms | 0.2 ms |
+| **Total** | **9.7 ms (about 100 FPS)** | 17.7 ms (about 56 FPS) |
+| Start-up | about 7 s (cached engine); about 60 s first time | about 9 s |
+
+The detection counts from the two providers match within FP16 rounding (for example 291 vs 289 cones).
 
 ## Files
 

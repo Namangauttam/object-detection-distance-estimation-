@@ -41,7 +41,7 @@ struct Args {
     float conf = 0.25f;
     float iou = 0.45f;
     bool show = true;
-    bool cpu = false;
+    std::string provider = "auto";  // auto | tensorrt | cuda | cpu
     bool model_default = true;
     fs::path camera = "src/camera.yaml";
     bool debug_lanes = false;
@@ -49,7 +49,7 @@ struct Args {
 
 static void usage() {
     std::cout << "yolo_infer [--model PATH] [--source DIR|FILE] [--out DIR] [--conf F] [--iou F]"
-                 " [--camera YAML] [--no-show] [--cpu] [--debug-lanes]\n";
+                 " [--camera YAML] [--provider auto|tensorrt|cuda|cpu] [--cpu] [--no-show] [--debug-lanes]\n";
 }
 
 static Args parse_args(int argc, char** argv) {
@@ -66,7 +66,8 @@ static Args parse_args(int argc, char** argv) {
         else if (k == "--conf") a.conf = std::stof(next());
         else if (k == "--iou") a.iou = std::stof(next());
         else if (k == "--no-show") a.show = false;
-        else if (k == "--cpu") a.cpu = true;
+        else if (k == "--cpu") a.provider = "cpu";
+        else if (k == "--provider") a.provider = next();
         else if (k == "--camera") a.camera = next();
         else if (k == "--debug-lanes") a.debug_lanes = true;
         else if (k == "-h" || k == "--help") { usage(); std::exit(0); }
@@ -75,17 +76,41 @@ static Args parse_args(int argc, char** argv) {
     return a;
 }
 
-// Make the CUDA/cuDNN DLLs shipped with PyTorch visible to onnxruntime_providers_cuda.dll.
-static void add_cuda_dll_dir() {
+static void prepend_path(const char* env_var, const char* fallback) {
 #ifdef _WIN32
     std::string dir;
-    if (const char* env = std::getenv("CUDA_DLL_DIR")) dir = env;
-#ifdef DEFAULT_CUDA_DLL_DIR
-    if (dir.empty()) dir = DEFAULT_CUDA_DLL_DIR;
-#endif
+    if (const char* env = std::getenv(env_var)) dir = env;
+    if (dir.empty() && fallback) dir = fallback;
     if (dir.empty() || !fs::exists(dir)) return;
-    std::string path = std::getenv("PATH") ? std::getenv("PATH") : "";
+    // Read the live process PATH: std::getenv does not see earlier SetEnvironmentVariableA calls.
+    std::string path(GetEnvironmentVariableA("PATH", nullptr, 0), '\0');
+    if (!path.empty()) path.resize(GetEnvironmentVariableA("PATH", path.data(), (DWORD)path.size()));
     SetEnvironmentVariableA("PATH", (fs::path(dir).make_preferred().string() + ";" + path).c_str());
+#endif
+}
+
+// Make the CUDA/cuDNN DLLs (from PyTorch) and TensorRT DLLs (from the tensorrt-cu12-libs wheel)
+// visible to the ONNX Runtime provider DLLs.
+static void add_gpu_dll_dirs() {
+#ifdef DEFAULT_CUDA_DLL_DIR
+    prepend_path("CUDA_DLL_DIR", DEFAULT_CUDA_DLL_DIR);
+#else
+    prepend_path("CUDA_DLL_DIR", nullptr);
+#endif
+#ifdef DEFAULT_TRT_DLL_DIR
+    prepend_path("TRT_DLL_DIR", DEFAULT_TRT_DLL_DIR);
+#else
+    prepend_path("TRT_DLL_DIR", nullptr);
+#endif
+}
+
+static bool tensorrt_available() {
+#ifdef _WIN32
+    HMODULE h = LoadLibraryA("nvinfer_10.dll");
+    if (h) FreeLibrary(h);
+    return h != nullptr;
+#else
+    return false;
 #endif
 }
 
@@ -130,23 +155,27 @@ static std::vector<Detection> nms(std::vector<Detection> dets, float thr) {
     return keep;
 }
 
+enum class Provider { TensorRT, CUDA, CPU };
+
 class YoloOnnx {
 public:
-    YoloOnnx(const fs::path& model, bool cpu)
-        : env_(ORT_LOGGING_LEVEL_WARNING, "yolo"), session_(nullptr) {
-        Ort::SessionOptions opts;
-        opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
-        if (!cpu) {
+    // Tries the requested provider first and falls back TensorRT -> CUDA -> CPU.
+    YoloOnnx(const fs::path& model, Provider want) : env_(ORT_LOGGING_LEVEL_WARNING, "yolo"), session_(nullptr) {
+        std::vector<Provider> order;
+        if (want == Provider::TensorRT) order = {Provider::TensorRT, Provider::CUDA, Provider::CPU};
+        else if (want == Provider::CUDA) order = {Provider::CUDA, Provider::CPU};
+        else order = {Provider::CPU};
+        for (Provider p : order) {
             try {
-                OrtCUDAProviderOptions cuda{};
-                cuda.device_id = 0;
-                opts.AppendExecutionProvider_CUDA(cuda);
-                provider_ = "CUDA";
+                session_ = Ort::Session(env_, model.c_str(), make_options(p, model));
+                provider_ = p == Provider::TensorRT ? "TensorRT" : p == Provider::CUDA ? "CUDA" : "CPU";
+                break;
             } catch (const Ort::Exception& e) {
-                std::cerr << "CUDA provider unavailable (" << e.what() << "), using CPU.\n";
+                std::cerr << (p == Provider::TensorRT ? "TensorRT" : p == Provider::CUDA ? "CUDA" : "CPU")
+                          << " provider unavailable: " << e.what() << "\n";
+                if (p == Provider::CPU) throw;
             }
         }
-        session_ = Ort::Session(env_, model.c_str(), opts);
 
         Ort::AllocatorWithDefaultOptions alloc;
         in_name_ = session_.GetInputNameAllocated(0, alloc).get();
@@ -239,12 +268,50 @@ public:
     }
 
     const std::vector<std::string>& names() const { return names_; }
-    std::string provider() const { return provider_ + (fp16_ ? " FP16" : " FP32"); }
+    std::string provider() const {
+        if (provider_ == "TensorRT") return "TensorRT FP16";  // engine is built with FP16 enabled
+        return provider_ + (fp16_ ? " FP16" : " FP32");
+    }
     int size() const { return size_; }
 
 private:
     Ort::Env env_;
     Ort::Session session_;
+    static Ort::SessionOptions make_options(Provider p, const fs::path& model) {
+        Ort::SessionOptions opts;
+        opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+        if (p == Provider::TensorRT) {
+            // Engine + timing caches next to the model: the first run builds (minutes), later runs load.
+            static std::string cache = (model.parent_path() / "trt_cache").string();
+            fs::create_directories(cache);
+            bool cached = false;
+            for (auto& e : fs::directory_iterator(cache)) cached |= e.path().extension() == ".engine";
+            if (!cached) std::cout << "Building TensorRT engine (first run only, may take a few minutes)...\n";
+            const OrtApi& api = Ort::GetApi();
+            OrtTensorRTProviderOptionsV2* trt = nullptr;
+            Ort::ThrowOnError(api.CreateTensorRTProviderOptions(&trt));
+            const char* keys[] = {"device_id", "trt_fp16_enable", "trt_engine_cache_enable",
+                                  "trt_engine_cache_path", "trt_timing_cache_enable", "trt_timing_cache_path",
+                                  "trt_max_workspace_size", "trt_builder_optimization_level"};
+            const char* vals[] = {"0", "1", "1", cache.c_str(), "1", cache.c_str(), "2147483648", "3"};
+            OrtStatus* st = api.UpdateTensorRTProviderOptions(trt, keys, vals, sizeof(keys) / sizeof(keys[0]));
+            if (st) { api.ReleaseTensorRTProviderOptions(trt); Ort::ThrowOnError(st); }
+            try {
+                opts.AppendExecutionProvider_TensorRT_V2(*trt);
+            } catch (...) {
+                api.ReleaseTensorRTProviderOptions(trt);
+                throw;
+            }
+            api.ReleaseTensorRTProviderOptions(trt);
+        }
+        if (p != Provider::CPU) {  // CUDA also runs any nodes TensorRT doesn't support
+            OrtCUDAProviderOptions cuda{};
+            cuda.device_id = 0;
+            opts.AppendExecutionProvider_CUDA(cuda);
+        }
+        return opts;
+    }
+
     std::string in_name_, out_name_, provider_ = "CPU";
     std::vector<std::string> names_;
     std::vector<uint8_t> input_;  // raw tensor bytes (FP32 or FP16)
@@ -313,7 +380,17 @@ static std::vector<fs::path> list_videos(const fs::path& src) {
 
 int main(int argc, char** argv) {
     Args args = parse_args(argc, argv);
-    if (args.model_default && !args.cpu) {  // prefer the faster FP16 export on GPU
+    add_gpu_dll_dirs();
+
+    Provider provider;
+    if (args.provider == "tensorrt" || args.provider == "trt") provider = Provider::TensorRT;
+    else if (args.provider == "cuda") provider = Provider::CUDA;
+    else if (args.provider == "cpu") provider = Provider::CPU;
+    else if (args.provider == "auto") provider = tensorrt_available() ? Provider::TensorRT : Provider::CUDA;
+    else { std::cerr << "Unknown --provider " << args.provider << "\n"; return 1; }
+
+    // TensorRT builds its own FP16 engine from the FP32 model; plain CUDA is faster with the FP16 export.
+    if (args.model_default && provider == Provider::CUDA) {
         fs::path fp16 = args.model.parent_path() / (args.model.stem().string() + "_fp16.onnx");
         if (fs::exists(fp16)) args.model = fp16;
     }
@@ -328,9 +405,8 @@ int main(int argc, char** argv) {
         return 1;
     }
     fs::create_directories(args.out);
-    add_cuda_dll_dir();
 
-    YoloOnnx model(args.model, args.cpu);
+    YoloOnnx model(args.model, provider);
     std::cout << "Model: " << args.model.string() << "  input " << model.size() << "x" << model.size()
               << "  provider " << model.provider() << "\nClasses:";
     for (auto& n : model.names()) std::cout << " " << n;

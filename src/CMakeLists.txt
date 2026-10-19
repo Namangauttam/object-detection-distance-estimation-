@@ -46,6 +46,22 @@ else()
   message(WARNING "PyTorch not found by ${Python3_EXECUTABLE}; set CUDA_DLL_DIR at runtime for GPU inference.")
 endif()
 
+# TensorRT 10 runtime DLLs (optional): third_party/tensorrt (setup_deps.ps1), else the pip wheel.
+if(EXISTS "${THIRD_PARTY}/tensorrt/nvinfer_10.dll")
+  set(TRT_LIB_DIR "${THIRD_PARTY}/tensorrt")
+elseif(Python3_FOUND)
+  execute_process(
+    COMMAND "${Python3_EXECUTABLE}" -c "import tensorrt_libs; print(list(tensorrt_libs.__path__)[0])"
+    OUTPUT_VARIABLE TRT_LIB_DIR OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+endif()
+if(TRT_LIB_DIR)
+  file(TO_CMAKE_PATH "${TRT_LIB_DIR}" TRT_LIB_DIR)
+  message(STATUS "TensorRT DLLs: ${TRT_LIB_DIR}")
+  target_compile_definitions(yolo_infer PRIVATE DEFAULT_TRT_DLL_DIR="${TRT_LIB_DIR}")
+else()
+  message(STATUS "TensorRT libs not found (pip install tensorrt-cu12-libs) - CUDA provider will be used")
+endif()
+
 # Copy ONNX Runtime DLLs next to the executable (OpenCV DLLs come from C:/msys64/ucrt64/bin on PATH).
 file(GLOB ORT_DLLS "${ORT_DIR}/lib/*.dll")
 add_custom_command(TARGET yolo_infer POST_BUILD

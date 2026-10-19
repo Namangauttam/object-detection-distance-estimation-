@@ -1,5 +1,7 @@
 # One-time setup of the C++ dependencies (MSYS2 UCRT64 toolchain).
 #   powershell -ExecutionPolicy Bypass -File src\setup_deps.ps1
+#   powershell -ExecutionPolicy Bypass -File src\setup_deps.ps1 -TensorRT   # also TensorRT (2.2 GB download)
+param([switch]$TensorRT)
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"   # makes Invoke-WebRequest much faster
 
@@ -27,6 +29,29 @@ if (-not (Test-Path (Join-Path $OrtDir "lib\onnxruntime.dll"))) {
     if (Test-Path $OrtDir) { Remove-Item -Recurse -Force $OrtDir }
     Rename-Item (Join-Path $Tp "onnxruntime-win-x64-gpu_cuda12-$OrtVersion") "onnxruntime"
     Remove-Item $zip
+}
+
+# Optional: TensorRT 10 runtime DLLs for the ONNX Runtime TensorRT provider (~2x faster than CUDA).
+# Extracted straight into third_party\tensorrt (3.2 GB) so nothing is installed on the system drive.
+$TrtVersion = "10.16.1.11"
+$TrtDir = Join-Path $Tp "tensorrt"
+if ($TensorRT -and -not (Test-Path (Join-Path $TrtDir "nvinfer_10.dll"))) {
+    $whl = Join-Path $Tp "tensorrt_cu12_libs-$TrtVersion-py3-none-win_amd64.whl"
+    $url = "https://pypi.nvidia.com/tensorrt-cu12-libs/tensorrt_cu12_libs-$TrtVersion-py3-none-win_amd64.whl"
+    Write-Host "Downloading TensorRT $TrtVersion (2.2 GB) ..."
+    & curl.exe -L -C - --retry 5 -o $whl $url
+    if ($LASTEXITCODE) { throw "TensorRT download failed" }
+    New-Item -ItemType Directory -Force $TrtDir | Out-Null
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($whl)
+    try {
+        foreach ($e in $zip.Entries) {
+            if ($e.FullName -like "tensorrt_libs/*.dll") {
+                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e, (Join-Path $TrtDir $e.Name), $true)
+            }
+        }
+    } finally { $zip.Dispose() }
+    Remove-Item $whl
 }
 
 Write-Host "Dependencies ready."
