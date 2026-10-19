@@ -1,0 +1,595 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Annotation Review</title>
+<style>
+  :root {
+    --bg: #14161a; --panel: #1c1f25; --panel2: #23272f; --line: #2f343d;
+    --text: #e6e8eb; --muted: #8b929c; --accent: #4f8cff; --ok: #3fb950; --warn: #d29922; --bad: #f85149;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  button, select, input { font: inherit; color: var(--text); background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .app { display: grid; grid-template-columns: 250px 1fr 270px; grid-template-rows: 48px 1fr; height: 100vh; }
+  header { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 0 12px;
+    background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 14px; margin: 0 8px 0 0; font-weight: 600; }
+  header .name { font-family: ui-monospace, Consolas, monospace; color: var(--muted); }
+  header .spacer { flex: 1; }
+  .badge { padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+  .badge.rev { background: rgba(63,185,80,.18); color: var(--ok); }
+  .badge.unrev { background: rgba(210,153,34,.18); color: var(--warn); }
+  #saveState { color: var(--muted); min-width: 70px; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); overflow: hidden;
+    display: flex; flex-direction: column; min-height: 0; }
+  aside.right { border-right: 0; border-left: 1px solid var(--line); overflow-y: auto; }
+  .section { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .section h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+    margin: 0 0 8px; font-weight: 600; }
+  .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .progress { height: 6px; background: var(--panel2); border-radius: 3px; overflow: hidden; margin-top: 8px; }
+  .progress > div { height: 100%; background: var(--ok); }
+  #list { overflow-y: auto; flex: 1; min-height: 0; }
+  .item { display: flex; align-items: center; gap: 6px; padding: 4px 12px; cursor: pointer;
+    font-family: ui-monospace, Consolas, monospace; font-size: 12px; border-left: 3px solid transparent; }
+  .item:hover { background: var(--panel2); }
+  .item.active { background: var(--panel2); border-left-color: var(--accent); }
+  .item .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line); flex: none; }
+  .item.reviewed .dot { background: var(--ok); }
+  .item .n { margin-left: auto; color: var(--muted); }
+  main { position: relative; overflow: hidden; background: #0b0c0e; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .hint { position: absolute; left: 10px; bottom: 8px; color: var(--muted); font-size: 12px;
+    background: rgba(0,0,0,.55); padding: 4px 8px; border-radius: 6px; pointer-events: none; }
+  .cls { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer;
+    border: 1px solid transparent; }
+  .cls:hover { background: var(--panel2); }
+  .cls.active { border-color: var(--accent); background: var(--panel2); }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  .key { margin-left: auto; color: var(--muted); font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
+  .addcls { display: flex; gap: 6px; margin-top: 8px; }
+  .addcls input { flex: 1; min-width: 0; }
+  .box { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+  .box:hover { background: var(--panel2); }
+  .box.sel { background: var(--panel2); outline: 1px solid var(--accent); }
+  .box select { flex: 1; padding: 2px 4px; }
+  .box .del { padding: 2px 7px; color: var(--bad); }
+  .empty { color: var(--muted); font-style: italic; }
+  kbd { font-family: ui-monospace, Consolas, monospace; font-size: 11px; background: var(--panel2);
+    border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; }
+  .keys { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; color: var(--muted); font-size: 12px; }
+  .keys span:nth-child(odd) { text-align: right; white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Annotation Review</h1>
+    <button id="prev" title="Previous (A / ←)">◀</button>
+    <span id="pos">–</span>
+    <button id="next" title="Next (D / →)">▶</button>
+    <span class="name" id="imgName"></span>
+    <span class="badge" id="revBadge"></span>
+    <span class="spacer"></span>
+    <span id="saveState"></span>
+    <button id="copyPrev" title="Add boxes from previous frame (P)">Copy prev frame</button>
+    <button id="toggleRev" class="primary" title="Mark reviewed and go to next (Enter)">✓ Reviewed &amp; next</button>
+  </header>
+
+  <aside>
+    <div class="section">
+      <h2>Filter</h2>
+      <div class="filters">
+        <select id="fStatus">
+          <option value="all">All</option>
+          <option value="unrev">Unreviewed</option>
+          <option value="rev">Reviewed</option>
+          <option value="empty">No boxes</option>
+        </select>
+        <select id="fVideo"><option value="">All videos</option></select>
+      </div>
+      <select id="fClass" style="width:100%;margin-top:6px"><option value="">Any class</option></select>
+      <div class="progress"><div id="progBar" style="width:0"></div></div>
+      <div id="progText" style="color:var(--muted);margin-top:4px;font-size:12px"></div>
+    </div>
+    <div id="list"></div>
+  </aside>
+
+  <main id="stage">
+    <canvas id="cv"></canvas>
+    <div class="hint" id="hint">Drag to draw · click a box to select · scroll to zoom · right-drag to pan</div>
+  </main>
+
+  <aside class="right">
+    <div class="section">
+      <h2>Classes (draw with selected)</h2>
+      <div id="classes"></div>
+      <div class="addcls">
+        <input id="newCls" placeholder="new class name">
+        <button id="addCls">Add</button>
+      </div>
+    </div>
+    <div class="section">
+      <h2>Boxes in this image <span id="boxCount"></span></h2>
+      <div id="boxes"></div>
+    </div>
+    <div class="section">
+      <h2>Shortcuts</h2>
+      <div class="keys">
+        <span><kbd>1</kbd>–<kbd>9</kbd></span><span>Pick class / change selected box</span>
+        <span><kbd>Del</kbd> <kbd>X</kbd></span><span>Delete selected box</span>
+        <span><kbd>A</kbd> <kbd>D</kbd></span><span>Previous / next image</span>
+        <span><kbd>Enter</kbd></span><span>Mark reviewed &amp; next</span>
+        <span><kbd>Tab</kbd></span><span>Cycle selection</span>
+        <span><kbd>P</kbd></span><span>Copy boxes from previous frame</span>
+        <span><kbd>Ctrl</kbd>+<kbd>Z</kbd></span><span>Undo</span>
+        <span><kbd>H</kbd></span><span>Hide / show boxes</span>
+        <span><kbd>F</kbd></span><span>Fit image to view</span>
+        <span>Scroll</span><span>Zoom at cursor</span>
+        <span>Right / middle drag</span><span>Pan (or hold <kbd>Space</kbd>)</span>
+        <span>Arrows</span><span>Nudge selected box (Shift = 10px)</span>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script>
+const PALETTE = ["#ff7a1a", "#2fbf71", "#c08a4a", "#e6e6e6", "#ff3b5c", "#4f8cff", "#b26bff",
+                 "#ffd23f", "#2ec4d6", "#ff6bd6", "#9ccc65", "#8d6e63"];
+const $ = id => document.getElementById(id);
+const cv = $("cv"), ctx = cv.getContext("2d");
+
+const st = {
+  classes: [], images: [], view: [], idx: -1, name: null,
+  boxes: [], sel: -1, cur: 0, reviewed: false, hist: [],
+  img: new Image(), imgReady: false, hide: false,
+  vs: { s: 1, x: 0, y: 0 }, drag: null, space: false, mouse: null,
+};
+
+const color = c => PALETTE[c % PALETTE.length];
+
+/* ---------- API ---------- */
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body) } : {});
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+  return r.json();
+}
+
+async function loadState() {
+  const s = await api("/api/state");
+  st.classes = s.classes;
+  st.images = s.images;
+  const videos = [...new Set(st.images.map(i => i.name.replace(/_\d+\.jpg$/, "")))];
+  $("fVideo").innerHTML = '<option value="">All videos</option>' +
+    videos.map(v => `<option>${v}</option>`).join("");
+  renderClassFilter();
+  renderClasses();
+  applyFilter();
+}
+
+/* ---------- list / filter ---------- */
+function applyFilter(keepName) {
+  const f = $("fStatus").value, v = $("fVideo").value, c = $("fClass").value;
+  st.view = st.images.filter(i =>
+    (f === "all" || (f === "rev" && i.reviewed) || (f === "unrev" && !i.reviewed) || (f === "empty" && i.n === 0)) &&
+    (!v || i.name.startsWith(v + "_")) &&
+    (c === "" || i.cls.includes(+c)));
+  renderList();
+  updateProgress();
+  const target = keepName ?? st.name;
+  const at = st.view.findIndex(i => i.name === target);
+  if (at >= 0) { st.idx = at; highlightList(); }
+  else if (st.view.length) open(0);
+  else { st.idx = -1; $("pos").textContent = "0 / 0"; }
+}
+
+function renderList() {
+  $("list").innerHTML = st.view.map((i, k) =>
+    `<div class="item${i.reviewed ? " reviewed" : ""}" data-k="${k}"><span class="dot"></span>` +
+    `${i.name.replace(".jpg", "")}<span class="n">${i.n}</span></div>`).join("");
+}
+
+function highlightList() {
+  document.querySelectorAll(".item.active").forEach(e => e.classList.remove("active"));
+  const el = $("list").children[st.idx];
+  if (el) { el.classList.add("active"); el.scrollIntoView({ block: "nearest" }); }
+  $("pos").textContent = `${st.idx + 1} / ${st.view.length}`;
+}
+
+function updateProgress() {
+  const done = st.images.filter(i => i.reviewed).length, all = st.images.length || 1;
+  $("progBar").style.width = (100 * done / all) + "%";
+  $("progText").textContent = `${done} / ${st.images.length} reviewed · ${st.view.length} shown`;
+}
+
+$("list").addEventListener("click", e => {
+  const it = e.target.closest(".item");
+  if (it) open(+it.dataset.k);
+});
+["fStatus", "fVideo", "fClass"].forEach(id => $(id).addEventListener("change", () => applyFilter()));
+
+/* ---------- open image ---------- */
+async function open(k) {
+  if (k < 0 || k >= st.view.length) return;
+  await flushSave();
+  st.idx = k;
+  const name = st.view[k].name;
+  st.name = name;
+  highlightList();
+  $("imgName").textContent = name;
+  const lab = await api("/api/labels?img=" + encodeURIComponent(name));
+  if (st.name !== name) return;
+  st.imgReady = false;
+  st.img = new Image();
+  st.img.onload = () => {
+    if (st.name !== name) return;
+    st.boxes = lab.boxes.map(([c, cx, cy, w, h]) => ({
+      c, x1: (cx - w / 2) * st.img.width, y1: (cy - h / 2) * st.img.height,
+      x2: (cx + w / 2) * st.img.width, y2: (cy + h / 2) * st.img.height }));
+    st.reviewed = lab.reviewed;
+    st.sel = -1; st.hist = []; st.imgReady = true;
+    if (!st.keepView) fit();
+    renderSide(); draw();
+  };
+  st.img.src = "/images/" + encodeURIComponent(name);
+}
+
+/* ---------- saving ---------- */
+let saveTimer = null, savePending = null;
+function scheduleSave(extra) {
+  savePending = { name: st.name, body: { boxes: serialise(), ...(extra || {}) } };
+  $("saveState").textContent = "unsaved…";
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(flushSave, 400);
+}
+async function flushSave() {
+  clearTimeout(saveTimer);
+  if (!savePending) return;
+  const { name, body } = savePending;
+  savePending = null;
+  try {
+    await api("/api/labels?img=" + encodeURIComponent(name), body);
+    const rec = st.images.find(i => i.name === name);
+    if (rec) {
+      rec.n = body.boxes.length;
+      rec.cls = [...new Set(body.boxes.map(b => b[0]))].sort((a, b) => a - b);
+      if ("reviewed" in body) rec.reviewed = body.reviewed;
+      const k = st.view.indexOf(rec), el = $("list").children[k];
+      if (el) {
+        el.querySelector(".n").textContent = rec.n;
+        el.classList.toggle("reviewed", rec.reviewed);
+      }
+    }
+    updateProgress();
+    $("saveState").textContent = "saved ✓";
+  } catch (err) {
+    $("saveState").textContent = "SAVE FAILED";
+    alert("Save failed: " + err.message);
+  }
+}
+function serialise() {
+  const W = st.img.width, H = st.img.height;
+  return st.boxes.map(b => {
+    const x1 = Math.max(0, Math.min(b.x1, b.x2)), x2 = Math.min(W, Math.max(b.x1, b.x2));
+    const y1 = Math.max(0, Math.min(b.y1, b.y2)), y2 = Math.min(H, Math.max(b.y1, b.y2));
+    return [b.c, (x1 + x2) / 2 / W, (y1 + y2) / 2 / H, (x2 - x1) / W, (y2 - y1) / H];
+  }).filter(b => b[3] > 0 && b[4] > 0);
+}
+function pushHist() { st.hist.push(JSON.stringify(st.boxes)); if (st.hist.length > 100) st.hist.shift(); }
+function changed() { renderSide(); draw(); scheduleSave(); }
+
+/* ---------- view transform ---------- */
+function resize() {
+  const r = $("stage").getBoundingClientRect(), d = window.devicePixelRatio || 1;
+  cv.width = r.width * d; cv.height = r.height * d;
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+  draw();
+}
+function fit() {
+  const r = $("stage").getBoundingClientRect();
+  const s = Math.min(r.width / st.img.width, r.height / st.img.height) * 0.98;
+  st.vs = { s, x: (r.width - st.img.width * s) / 2, y: (r.height - st.img.height * s) / 2 };
+}
+const toImg = (sx, sy) => ({ x: (sx - st.vs.x) / st.vs.s, y: (sy - st.vs.y) / st.vs.s });
+const toScr = (x, y) => ({ x: x * st.vs.s + st.vs.x, y: y * st.vs.s + st.vs.y });
+function evPos(e) { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+
+/* ---------- drawing ---------- */
+function draw() {
+  const r = $("stage").getBoundingClientRect();
+  ctx.clearRect(0, 0, r.width, r.height);
+  if (!st.imgReady) return;
+  ctx.imageSmoothingEnabled = st.vs.s < 2;
+  ctx.drawImage(st.img, st.vs.x, st.vs.y, st.img.width * st.vs.s, st.img.height * st.vs.s);
+  if (!st.hide) {
+    st.boxes.forEach((b, i) => drawBox(b, i === st.sel));
+  }
+  const d = st.drag;
+  if (d && d.mode === "draw") {
+    drawBox({ c: st.cur, x1: d.x0, y1: d.y0, x2: d.x, y2: d.y }, true, true);
+  }
+  // crosshair for precise drawing
+  if (st.mouse && !st.space && (!d || d.mode === "draw")) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(255,255,255,.35)"; ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, st.mouse.y + .5); ctx.lineTo(r.width, st.mouse.y + .5);
+    ctx.moveTo(st.mouse.x + .5, 0); ctx.lineTo(st.mouse.x + .5, r.height);
+    ctx.stroke(); ctx.restore();
+  }
+}
+function drawBox(b, selected, ghost) {
+  const p1 = toScr(Math.min(b.x1, b.x2), Math.min(b.y1, b.y2));
+  const p2 = toScr(Math.max(b.x1, b.x2), Math.max(b.y1, b.y2));
+  const col = color(b.c), w = p2.x - p1.x, h = p2.y - p1.y;
+  ctx.save();
+  ctx.lineWidth = selected ? 2.5 : 1.6;
+  ctx.strokeStyle = col;
+  if (ghost) ctx.setLineDash([5, 3]);
+  if (selected) { ctx.fillStyle = col + "33"; ctx.fillRect(p1.x, p1.y, w, h); }
+  ctx.strokeRect(p1.x, p1.y, w, h);
+  ctx.setLineDash([]);
+  const label = st.classes[b.c] ?? ("#" + b.c);
+  ctx.font = "600 11px system-ui, sans-serif";
+  const tw = ctx.measureText(label).width + 8;
+  const ly = p1.y - 15 < 0 ? p1.y : p1.y - 15;
+  ctx.fillStyle = col; ctx.fillRect(p1.x, ly, tw, 15);
+  ctx.fillStyle = "#000"; ctx.fillText(label, p1.x + 4, ly + 11);
+  if (selected && !ghost) {
+    ctx.fillStyle = "#fff"; ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+    handles(b).forEach(hd => { ctx.fillRect(hd.sx - 4, hd.sy - 4, 8, 8); ctx.strokeRect(hd.sx - 4, hd.sy - 4, 8, 8); });
+  }
+  ctx.restore();
+}
+function handles(b) {
+  const xs = { l: Math.min(b.x1, b.x2), r: Math.max(b.x1, b.x2), m: (b.x1 + b.x2) / 2 };
+  const ys = { t: Math.min(b.y1, b.y2), b: Math.max(b.y1, b.y2), m: (b.y1 + b.y2) / 2 };
+  return ["tl", "tm", "tr", "ml", "mr", "bl", "bm", "br"].map(k => {
+    const p = toScr(xs[k[1] === "m" ? "m" : k[1]], ys[k[0] === "m" ? "m" : k[0]]);
+    return { k, sx: p.x, sy: p.y };
+  });
+}
+function norm(b) {
+  const x1 = Math.min(b.x1, b.x2), x2 = Math.max(b.x1, b.x2), y1 = Math.min(b.y1, b.y2), y2 = Math.max(b.y1, b.y2);
+  b.x1 = x1; b.x2 = x2; b.y1 = y1; b.y2 = y2;
+}
+
+/* ---------- mouse ---------- */
+cv.addEventListener("contextmenu", e => e.preventDefault());
+cv.addEventListener("mousedown", e => {
+  if (!st.imgReady) return;
+  const p = evPos(e), q = toImg(p.x, p.y);
+  if (e.button === 1 || e.button === 2 || st.space) {
+    st.drag = { mode: "pan", sx: p.x, sy: p.y, ox: st.vs.x, oy: st.vs.y };
+    return;
+  }
+  if (e.button !== 0) return;
+  // resize handle of selected box?
+  if (st.sel >= 0 && !st.hide) {
+    const hd = handles(st.boxes[st.sel]).find(h => Math.abs(h.sx - p.x) <= 7 && Math.abs(h.sy - p.y) <= 7);
+    if (hd) { pushHist(); st.drag = { mode: "resize", k: hd.k }; return; }
+  }
+  // hit test: smallest box containing point
+  let hit = -1, best = Infinity;
+  if (!st.hide) st.boxes.forEach((b, i) => {
+    if (q.x >= b.x1 && q.x <= b.x2 && q.y >= b.y1 && q.y <= b.y2) {
+      const a = (b.x2 - b.x1) * (b.y2 - b.y1);
+      if (a < best) { best = a; hit = i; }
+    }
+  });
+  if (hit >= 0) {
+    st.sel = hit; pushHist();
+    st.drag = { mode: "move", lx: q.x, ly: q.y, moved: false };
+  } else {
+    st.sel = -1;
+    st.drag = { mode: "draw", x0: q.x, y0: q.y, x: q.x, y: q.y };
+  }
+  renderSide(); draw();
+});
+window.addEventListener("mousemove", e => {
+  const p = evPos(e), q = toImg(p.x, p.y), d = st.drag;
+  const r = cv.getBoundingClientRect();
+  st.mouse = (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) ? p : null;
+  cv.style.cursor = st.space || (d && d.mode === "pan") ? "grab" : "crosshair";
+  if (!d) { draw(); return; }
+  const W = st.img.width, H = st.img.height;
+  const cx = Math.max(0, Math.min(W, q.x)), cy = Math.max(0, Math.min(H, q.y));
+  if (d.mode === "pan") { st.vs.x = d.ox + p.x - d.sx; st.vs.y = d.oy + p.y - d.sy; }
+  else if (d.mode === "draw") { d.x = cx; d.y = cy; }
+  else if (d.mode === "move") {
+    const b = st.boxes[st.sel];
+    let dx = q.x - d.lx, dy = q.y - d.ly;
+    dx = Math.max(-b.x1, Math.min(W - b.x2, dx)); dy = Math.max(-b.y1, Math.min(H - b.y2, dy));
+    b.x1 += dx; b.x2 += dx; b.y1 += dy; b.y2 += dy;
+    d.lx += dx; d.ly += dy; d.moved = d.moved || dx !== 0 || dy !== 0;
+  } else if (d.mode === "resize") {
+    const b = st.boxes[st.sel];
+    if (d.k[0] === "t") b.y1 = cy; if (d.k[0] === "b") b.y2 = cy;
+    if (d.k[1] === "l") b.x1 = cx; if (d.k[1] === "r") b.x2 = cx;
+  }
+  draw();
+});
+window.addEventListener("mouseup", () => {
+  const d = st.drag;
+  if (!d) return;
+  st.drag = null;
+  if (d.mode === "draw") {
+    const w = Math.abs(d.x - d.x0), h = Math.abs(d.y - d.y0);
+    if (w * st.vs.s >= 4 && h * st.vs.s >= 4) {
+      pushHist();
+      const b = { c: st.cur, x1: d.x0, y1: d.y0, x2: d.x, y2: d.y };
+      norm(b); st.boxes.push(b); st.sel = st.boxes.length - 1;
+      changed();
+    } else draw();
+  } else if (d.mode === "resize") {
+    norm(st.boxes[st.sel]); changed();
+  } else if (d.mode === "move") {
+    if (d.moved) changed(); else { st.hist.pop(); draw(); }
+  } else draw();
+});
+cv.addEventListener("wheel", e => {
+  e.preventDefault();
+  const p = evPos(e), q = toImg(p.x, p.y);
+  const s = Math.max(0.1, Math.min(20, st.vs.s * Math.exp(-e.deltaY * 0.0015)));
+  st.vs = { s, x: p.x - q.x * s, y: p.y - q.y * s };
+  draw();
+}, { passive: false });
+
+/* ---------- keyboard ---------- */
+window.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  const k = e.key;
+  if (k === " ") { st.space = true; e.preventDefault(); return; }
+  if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === "z") { undo(); e.preventDefault(); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (/^[1-9]$/.test(k)) {
+    const c = +k - 1;
+    if (c < st.classes.length) {
+      if (st.sel >= 0) { pushHist(); st.boxes[st.sel].c = c; st.cur = c; changed(); }
+      else { st.cur = c; renderClasses(); }
+      renderClasses();
+    }
+  } else if (k === "Delete" || k === "Backspace" || k === "x" || k === "X") {
+    if (st.sel >= 0) { pushHist(); st.boxes.splice(st.sel, 1); st.sel = -1; changed(); }
+    e.preventDefault();
+  } else if (k === "a" || k === "A" || (k === "ArrowLeft" && st.sel < 0)) { open(st.idx - 1); e.preventDefault(); }
+  else if (k === "d" || k === "D" || (k === "ArrowRight" && st.sel < 0)) { open(st.idx + 1); e.preventDefault(); }
+  else if (k.startsWith("Arrow") && st.sel >= 0) {
+    const n = e.shiftKey ? 10 : 1, b = st.boxes[st.sel];
+    const dx = k === "ArrowLeft" ? -n : k === "ArrowRight" ? n : 0, dy = k === "ArrowUp" ? -n : k === "ArrowDown" ? n : 0;
+    pushHist(); b.x1 += dx; b.x2 += dx; b.y1 += dy; b.y2 += dy; changed(); e.preventDefault();
+  }
+  else if (k === "Enter") { markReviewed(); e.preventDefault(); }
+  else if (k === "Escape") { st.sel = -1; renderSide(); draw(); }
+  else if (k === "Tab") {
+    if (st.boxes.length) { st.sel = (st.sel + (e.shiftKey ? -1 : 1) + st.boxes.length) % st.boxes.length; renderSide(); draw(); }
+    e.preventDefault();
+  }
+  else if (k === "h" || k === "H") { st.hide = !st.hide; draw(); }
+  else if (k === "f" || k === "F") { fit(); draw(); }
+  else if (k === "p" || k === "P") copyPrev();
+});
+window.addEventListener("keyup", e => { if (e.key === " ") st.space = false; });
+
+function undo() {
+  if (!st.hist.length) return;
+  st.boxes = JSON.parse(st.hist.pop()); st.sel = -1; changed();
+}
+
+async function markReviewed() {
+  if (!st.name) return;
+  st.reviewed = true;
+  scheduleSave({ reviewed: true });
+  await flushSave();
+  // in the "unreviewed" filter the current item disappears; refilter and stay at same position
+  if ($("fStatus").value === "unrev") {
+    const k = st.idx;
+    st.view = st.view.filter(i => !i.reviewed);
+    renderList(); updateProgress();
+    if (st.view.length) { st.name = null; open(Math.min(k, st.view.length - 1)); }
+  } else if (st.idx + 1 < st.view.length) open(st.idx + 1);
+  else renderSide();
+}
+
+async function toggleReviewOff() {
+  st.reviewed = false; scheduleSave({ reviewed: false }); await flushSave(); renderSide();
+}
+
+async function copyPrev() {
+  const all = st.images.map(i => i.name), at = all.indexOf(st.name);
+  if (at <= 0) return;
+  const prev = all[at - 1];
+  if (prev.replace(/_\d+\.jpg$/, "") !== st.name.replace(/_\d+\.jpg$/, "")) return;
+  const lab = await api("/api/labels?img=" + encodeURIComponent(prev));
+  if (!lab.boxes.length) return;
+  pushHist();
+  const W = st.img.width, H = st.img.height;
+  lab.boxes.forEach(([c, cx, cy, w, h]) => st.boxes.push({
+    c, x1: (cx - w / 2) * W, y1: (cy - h / 2) * H, x2: (cx + w / 2) * W, y2: (cy + h / 2) * H }));
+  st.sel = -1; changed();
+}
+
+/* ---------- side panels ---------- */
+function renderClasses() {
+  $("classes").innerHTML = st.classes.map((n, i) =>
+    `<div class="cls${i === st.cur ? " active" : ""}" data-c="${i}">` +
+    `<span class="swatch" style="background:${color(i)}"></span>${n}` +
+    `<span class="key">${i < 9 ? i + 1 : ""}</span></div>`).join("");
+}
+function renderClassFilter() {
+  const v = $("fClass").value;
+  $("fClass").innerHTML = '<option value="">Any class</option>' +
+    st.classes.map((n, i) => `<option value="${i}">${n}</option>`).join("");
+  $("fClass").value = v;
+}
+$("classes").addEventListener("click", e => {
+  const el = e.target.closest(".cls");
+  if (!el) return;
+  const c = +el.dataset.c;
+  if (st.sel >= 0) { pushHist(); st.boxes[st.sel].c = c; changed(); }
+  st.cur = c; renderClasses();
+});
+$("addCls").addEventListener("click", async () => {
+  const name = $("newCls").value.trim();
+  if (!name) return;
+  try {
+    const r = await api("/api/classes", { name });
+    st.classes = r.classes; st.cur = st.classes.length - 1;
+    $("newCls").value = "";
+    renderClasses(); renderClassFilter(); renderSide();
+  } catch (err) { alert(err.message); }
+});
+$("newCls").addEventListener("keydown", e => { if (e.key === "Enter") $("addCls").click(); });
+
+function renderSide() {
+  $("revBadge").className = "badge " + (st.reviewed ? "rev" : "unrev");
+  $("revBadge").textContent = st.reviewed ? "reviewed" : "not reviewed";
+  $("toggleRev").textContent = "✓ Reviewed & next";
+  $("boxCount").textContent = `(${st.boxes.length})`;
+  const opts = st.classes.map((n, i) => `<option value="${i}">${n}</option>`).join("");
+  $("boxes").innerHTML = st.boxes.length ? st.boxes.map((b, i) =>
+    `<div class="box${i === st.sel ? " sel" : ""}" data-i="${i}">` +
+    `<span class="swatch" style="background:${color(b.c)}"></span>` +
+    `<select data-i="${i}">${opts}</select>` +
+    `<span style="color:var(--muted);font-size:11px">${Math.round(b.x2 - b.x1)}×${Math.round(b.y2 - b.y1)}</span>` +
+    `<button class="del" data-i="${i}" title="Delete">✕</button></div>`).join("")
+    : '<div class="empty">No boxes — draw one if an object is visible.</div>';
+  $("boxes").querySelectorAll("select").forEach(s => s.value = st.boxes[+s.dataset.i].c);
+}
+$("boxes").addEventListener("click", e => {
+  if (e.target.tagName === "SELECT") return;
+  const del = e.target.closest(".del");
+  if (del) { pushHist(); st.boxes.splice(+del.dataset.i, 1); st.sel = -1; changed(); return; }
+  const row = e.target.closest(".box");
+  if (row) { st.sel = +row.dataset.i; renderSide(); draw(); }
+});
+$("boxes").addEventListener("change", e => {
+  if (e.target.tagName !== "SELECT") return;
+  pushHist(); st.boxes[+e.target.dataset.i].c = +e.target.value; changed(); e.target.blur();
+});
+
+$("prev").onclick = () => open(st.idx - 1);
+$("next").onclick = () => open(st.idx + 1);
+$("toggleRev").onclick = markReviewed;
+$("revBadge").onclick = () => { if (st.reviewed) toggleReviewOff(); };
+$("revBadge").title = "Click to un-mark reviewed";
+$("copyPrev").onclick = copyPrev;
+window.addEventListener("resize", resize);
+window.addEventListener("beforeunload", () => {
+  if (savePending) navigator.sendBeacon?.("/api/labels?img=" + encodeURIComponent(savePending.name),
+    new Blob([JSON.stringify(savePending.body)], { type: "application/json" }));
+});
+
+resize();
+loadState().catch(err => alert("Could not load: " + err.message));
+</script>
+</body>
+</html>

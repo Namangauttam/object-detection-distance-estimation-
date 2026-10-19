@@ -1,0 +1,6 @@
+cone
+person
+chair
+house
+barrier
+TRAFFIC

@@ -1,0 +1,54 @@
+# ---- Data: raw footage and anything derived from it ------------------------
+# Videos and frames show identifiable people (UK/EU GDPR): never commit them.
+videos/
+annotation/dataset/images/
+inference_output/
+src/calibration_preview.jpg
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# Generated dataset files (absolute paths / caches; rebuilt by the scripts)
+annotation/dataset/labels.cache
+annotation/dataset/*.cache
+annotation/dataset/train.txt
+annotation/dataset/val.txt
+model_training/splits/
+
+# ---- Model weights and training runs (large; regenerate or share separately) ----
+*.pt
+*.pth
+*.onnx
+*.engine
+annotation/models/
+annotation/weights/
+model_training/weights/
+model_training/runs/
+
+# ---- C++ build output and downloaded dependencies -------------------------
+src/build/
+build/
+third_party/
+*.exe
+*.dll
+*.obj
+*.o
+
+# ---- Python -----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# ---- Tools / OS -------------------------------------------------------------
+.vscode/
+.idea/
+*.tmp
+*.log
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Printable calibration board (regenerate with: src\calibrate.ps1 --make-board board.png)
+board.png

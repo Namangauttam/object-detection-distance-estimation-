@@ -1,0 +1,10 @@
+path: B:/robotics-object-detection/annotation/dataset
+train: train.txt
+val: val.txt
+names:
+  0: cone
+  1: person
+  2: chair
+  3: house
+  4: barrier
+  5: TRAFFIC

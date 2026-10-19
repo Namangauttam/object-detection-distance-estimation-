@@ -1,0 +1,32 @@
+%YAML:1.0
+---
+# Camera settings for distance estimation (read by yolo_infer --camera src/camera.yaml).
+# Values marked ASSUMED are placeholders: measure or calibrate them for real distances.
+
+# ---- Intrinsics -------------------------------------------------------------
+# Best: run a checkerboard calibration and fill fx, fy, cx, cy and dist.
+# Fallback: leave fx = 0 and set the lens horizontal field of view.
+hfov_deg: 110.0          # ASSUMED wide-angle dash camera
+fx: 0.0
+fy: 0.0
+cx: 0.0
+cy: 0.0
+dist: []                 # e.g. [k1, k2, p1, p2, k3] from calibration; empty = no distortion
+
+# ---- Mounting ---------------------------------------------------------------
+camera_height_m: 1.20    # ASSUMED lens height above the road (tape-measure it)
+auto_camera_height: 1    # 1 = refine height online from cones (needs correct cone height below)
+pitch_deg: 0.0           # initial tilt, + = looking down; refined online if auto_horizon
+auto_horizon: 1          # 1 = track the horizon each frame from lane lines
+bonnet_top_frac: 0.72    # image rows below this fraction are the car bonnet
+max_distance_m: 150.0
+
+# ---- Real object heights: [height_m, relative_uncertainty] --------------------
+# Measure your actual props. Classes with uncertainty <= 0.06 (standard-size props such as
+# cones) are used to auto-calibrate camera height; people vary too much for that.
+object_heights:
+  cone: [0.45, 0.05]     # ASSUMED 45 cm cone
+  person: [1.70, 0.10]
+  chair: [0.40, 0.25]    # ASSUMED
+  house: [0.30, 0.25]    # ASSUMED model house
+  barrier: [1.00, 0.20]  # ASSUMED
