@@ -42,6 +42,8 @@ struct Args {
     float iou = 0.45f;
     bool show = true;
     std::string provider = "auto";  // auto | tensorrt | cuda | cpu
+    std::string precision = "fp16";  // TensorRT engine precision: fp32 | fp16 | int8 (int8 needs a QDQ model)
+    fs::path images, pred_dir;       // evaluation mode: run on an image folder, write YOLO-format predictions
     bool model_default = true;
     fs::path camera = "src/camera.yaml";
     bool debug_lanes = false;
@@ -49,7 +51,8 @@ struct Args {
 
 static void usage() {
     std::cout << "yolo_infer [--model PATH] [--source DIR|FILE] [--out DIR] [--conf F] [--iou F]"
-                 " [--camera YAML] [--provider auto|tensorrt|cuda|cpu] [--cpu] [--no-show] [--debug-lanes]\n";
+                 " [--camera YAML] [--provider auto|tensorrt|cuda|cpu] [--precision fp32|fp16|int8] [--cpu]"
+                 " [--no-show] [--debug-lanes] [--images DIR --pred-dir DIR]\n";
 }
 
 static Args parse_args(int argc, char** argv) {
@@ -68,6 +71,9 @@ static Args parse_args(int argc, char** argv) {
         else if (k == "--no-show") a.show = false;
         else if (k == "--cpu") a.provider = "cpu";
         else if (k == "--provider") a.provider = next();
+        else if (k == "--precision") a.precision = next();
+        else if (k == "--images") a.images = next();
+        else if (k == "--pred-dir") a.pred_dir = next();
         else if (k == "--camera") a.camera = next();
         else if (k == "--debug-lanes") a.debug_lanes = true;
         else if (k == "-h" || k == "--help") { usage(); std::exit(0); }
@@ -160,14 +166,15 @@ enum class Provider { TensorRT, CUDA, CPU };
 class YoloOnnx {
 public:
     // Tries the requested provider first and falls back TensorRT -> CUDA -> CPU.
-    YoloOnnx(const fs::path& model, Provider want) : env_(ORT_LOGGING_LEVEL_WARNING, "yolo"), session_(nullptr) {
+    YoloOnnx(const fs::path& model, Provider want, const std::string& trt_precision = "fp16")
+        : env_(ORT_LOGGING_LEVEL_WARNING, "yolo"), session_(nullptr), trt_precision_(trt_precision) {
         std::vector<Provider> order;
         if (want == Provider::TensorRT) order = {Provider::TensorRT, Provider::CUDA, Provider::CPU};
         else if (want == Provider::CUDA) order = {Provider::CUDA, Provider::CPU};
         else order = {Provider::CPU};
         for (Provider p : order) {
             try {
-                session_ = Ort::Session(env_, model.c_str(), make_options(p, model));
+                session_ = Ort::Session(env_, model.c_str(), make_options(p, model, trt_precision_));
                 provider_ = p == Provider::TensorRT ? "TensorRT" : p == Provider::CUDA ? "CUDA" : "CPU";
                 break;
             } catch (const Ort::Exception& e) {
@@ -184,6 +191,7 @@ public:
         auto shape = in_info.GetShape();
         size_ = shape.size() == 4 && shape[2] > 0 ? (int)shape[2] : 1280;
         fp16_ = in_info.GetElementType() == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16;
+        qdq_ = model.stem().string().find("int8") != std::string::npos;  // QDQ-quantised export (by name)
 
         auto meta = session_.GetModelMetadata();
         auto names = meta.LookupCustomMetadataMapAllocated("names", alloc);
@@ -269,15 +277,19 @@ public:
 
     const std::vector<std::string>& names() const { return names_; }
     std::string provider() const {
-        if (provider_ == "TensorRT") return "TensorRT FP16";  // engine is built with FP16 enabled
-        return provider_ + (fp16_ ? " FP16" : " FP32");
+        if (provider_ == "TensorRT") {
+            std::string p = trt_precision_;
+            std::transform(p.begin(), p.end(), p.begin(), ::toupper);
+            return "TensorRT " + p;
+        }
+        return provider_ + (fp16_ ? " FP16" : qdq_ ? " INT8" : " FP32");
     }
     int size() const { return size_; }
 
 private:
     Ort::Env env_;
     Ort::Session session_;
-    static Ort::SessionOptions make_options(Provider p, const fs::path& model) {
+    static Ort::SessionOptions make_options(Provider p, const fs::path& model, const std::string& precision) {
         Ort::SessionOptions opts;
         opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
         if (p == Provider::TensorRT) {
@@ -292,8 +304,10 @@ private:
             Ort::ThrowOnError(api.CreateTensorRTProviderOptions(&trt));
             const char* keys[] = {"device_id", "trt_fp16_enable", "trt_engine_cache_enable",
                                   "trt_engine_cache_path", "trt_timing_cache_enable", "trt_timing_cache_path",
-                                  "trt_max_workspace_size", "trt_builder_optimization_level"};
-            const char* vals[] = {"0", "1", "1", cache.c_str(), "1", cache.c_str(), "2147483648", "3"};
+                                  "trt_max_workspace_size", "trt_builder_optimization_level", "trt_int8_enable"};
+            const char* fp16 = precision == "fp32" ? "0" : "1";  // int8 keeps fp16 for non-quantised layers
+            const char* int8 = precision == "int8" ? "1" : "0";  // explicit QDQ quantisation, no calibration table
+            const char* vals[] = {"0", fp16, "1", cache.c_str(), "1", cache.c_str(), "2147483648", "3", int8};
             OrtStatus* st = api.UpdateTensorRTProviderOptions(trt, keys, vals, sizeof(keys) / sizeof(keys[0]));
             if (st) { api.ReleaseTensorRTProviderOptions(trt); Ort::ThrowOnError(st); }
             try {
@@ -317,7 +331,8 @@ private:
     std::vector<uint8_t> input_;  // raw tensor bytes (FP32 or FP16)
     cv::Mat padded_, output32_;
     std::vector<cv::Mat> bgr_;
-    bool fp16_ = false;
+    bool fp16_ = false, qdq_ = false;
+    std::string trt_precision_;
     Timing timing_;
     int size_ = 1280;
 };
@@ -378,6 +393,52 @@ static std::vector<fs::path> list_videos(const fs::path& src) {
     return v;
 }
 
+// Median / p95 of per-frame times, skipping warm-up frames (GPU clocks, lazy allocations).
+static std::string timing_summary(std::vector<double> total, std::vector<double> run, size_t warmup = 10) {
+    if (total.size() <= warmup + 1) warmup = 0;
+    total.erase(total.begin(), total.begin() + warmup);
+    run.erase(run.begin(), run.begin() + warmup);
+    if (total.empty()) return "no frames";
+    auto pct = [](std::vector<double> v, double q) {
+        std::sort(v.begin(), v.end());
+        return v[std::min(v.size() - 1, (size_t)(q * (v.size() - 1) + 0.5))];
+    };
+    char buf[200];
+    std::snprintf(buf, sizeof(buf), "median total %.2f ms, p95 %.2f ms, median model %.2f ms (%zu timed frames)",
+                  pct(total, 0.5), pct(total, 0.95), pct(run, 0.5), total.size());
+    return buf;
+}
+
+// Evaluation mode: predictions for every image in a folder, one YOLO txt per image
+// ("cls cx cy w h conf", normalised), for computing mAP against the label files.
+static int run_images(YoloOnnx& model, const Args& args) {
+    std::vector<fs::path> imgs;
+    for (auto& e : fs::directory_iterator(args.images)) {
+        auto ext = e.path().extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        if (ext == ".jpg" || ext == ".jpeg" || ext == ".png") imgs.push_back(e.path());
+    }
+    std::sort(imgs.begin(), imgs.end());
+    if (imgs.empty()) { std::cerr << "No images in " << args.images << "\n"; return 1; }
+    fs::create_directories(args.pred_dir);
+    std::vector<double> total, run;
+    for (auto& p : imgs) {
+        cv::Mat img = cv::imread(p.string());
+        if (img.empty()) continue;
+        auto t0 = std::chrono::steady_clock::now();
+        auto dets = model.detect(img, args.conf, args.iou);
+        total.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+        run.push_back(model.last_timing().run);
+        std::ofstream f(args.pred_dir / (p.stem().string() + ".txt"));
+        for (auto& d : dets)
+            f << d.cls << ' ' << (d.box.x + d.box.width / 2) / img.cols << ' ' << (d.box.y + d.box.height / 2) / img.rows
+              << ' ' << d.box.width / img.cols << ' ' << d.box.height / img.rows << ' ' << d.score << '\n';
+    }
+    std::cout << "EVAL images " << total.size() << " -> " << args.pred_dir.string() << "  "
+              << timing_summary(total, run) << "\n";
+    return 0;
+}
+
 int main(int argc, char** argv) {
     Args args = parse_args(argc, argv);
     add_gpu_dll_dirs();
@@ -399,18 +460,31 @@ int main(int argc, char** argv) {
                   << "\nExport it first: python src/export_onnx.py\n";
         return 1;
     }
-    auto videos = list_videos(args.source);
-    if (videos.empty()) {
-        std::cerr << "No videos found in " << args.source << "\n";
+    if (args.precision != "fp32" && args.precision != "fp16" && args.precision != "int8") {
+        std::cerr << "Unknown --precision " << args.precision << "\n";
         return 1;
     }
-    fs::create_directories(args.out);
+    std::vector<fs::path> videos;
+    if (args.images.empty()) {
+        videos = list_videos(args.source);
+        if (videos.empty()) {
+            std::cerr << "No videos found in " << args.source << "\n";
+            return 1;
+        }
+        fs::create_directories(args.out);
+    } else if (args.pred_dir.empty()) {
+        std::cerr << "--images needs --pred-dir\n";
+        return 1;
+    }
 
-    YoloOnnx model(args.model, provider);
+    auto t_load = std::chrono::steady_clock::now();
+    YoloOnnx model(args.model, provider, args.precision);
+    double load_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t_load).count();
     std::cout << "Model: " << args.model.string() << "  input " << model.size() << "x" << model.size()
-              << "  provider " << model.provider() << "\nClasses:";
+              << "  provider " << model.provider() << "  session ready in " << load_s << " s\nClasses:";
     for (auto& n : model.names()) std::cout << " " << n;
     std::cout << "\n";
+    if (!args.images.empty()) return run_images(model, args);
 
     bool cam_found = false;
     CameraConfig cam = CameraConfig::load(args.camera.string(), &cam_found);
@@ -449,6 +523,7 @@ int main(int argc, char** argv) {
 
         std::map<std::string, int> counts;
         double infer_ms_sum = 0, pre_sum = 0, run_sum = 0, post_sum = 0;
+        std::vector<double> frame_ms, model_ms;
         int n = 0;
         bool paused = false;
         cv::Mat frame, shown;
@@ -464,6 +539,8 @@ int main(int argc, char** argv) {
                 infer_ms_sum += ms;
                 const auto& tm = model.last_timing();
                 pre_sum += tm.pre; run_sum += tm.run; post_sum += tm.post;
+                frame_ms.push_back(ms);
+                model_ms.push_back(tm.run);
                 ++n;
                 for (auto& d : dets) counts[model.names()[d.cls]]++;
 
@@ -517,7 +594,7 @@ int main(int argc, char** argv) {
                   << ", model " << (n ? run_sum / n : 0) << ", post " << (n ? post_sum / n : 0)
                   << ")  detections {";
         for (auto& [k, v] : counts) std::cout << " " << k << ":" << v;
-        std::cout << " }\n    distance: horizon " << (horizon.locked() ? "tracked" : "NOT locked") << " (pitch "
+        std::cout << " }\n    timing: " << timing_summary(frame_ms, model_ms) << "\n    distance: horizon " << (horizon.locked() ? "tracked" : "NOT locked") << " (pitch "
                   << horizon.pitch_deg() << " deg), camera height " << dist.camera_height() << " m from "
                   << dist.height_samples() << " samples  -> " << csv_path.string() << "\n";
     }

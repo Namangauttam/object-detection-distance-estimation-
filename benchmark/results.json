@@ -1,0 +1,288 @@
+{
+ "meta": {
+  "date": "20/10/2026 02:12",
+  "val_frames": 164,
+  "speed_video": "house_edited_4x.mp4"
+ },
+ "results": [
+  {
+   "id": "cpu_fp32",
+   "device": "CPU",
+   "provider_flag": "cpu",
+   "precision": 0.5677835958004159,
+   "model": "best.onnx",
+   "model_mb": 43.2,
+   "map50": 0.5291913015814869,
+   "map": 0.2735402624751106,
+   "recall": 0.46164287651348346,
+   "per_class_ap50": {
+    "cone": 0.8533152116934928,
+    "chair": 0.81375,
+    "house": 0.6460174416946809,
+    "barrier": 0.332873854519261,
+    "TRAFFIC": 0.0
+   },
+   "gt_counts": {
+    "cone": 83,
+    "chair": 9,
+    "house": 21,
+    "barrier": 105,
+    "TRAFFIC": 25
+   },
+   "median_ms": 368.61,
+   "p95_ms": 399.91,
+   "model_ms": 364.13,
+   "first_session_s": 0.338778,
+   "session_s": 0.232431,
+   "provider_used": "CPU FP32"
+  },
+  {
+   "id": "cpu_fp16",
+   "device": "CPU",
+   "provider_flag": "cpu",
+   "precision": 0.5666880798422159,
+   "model": "best_fp16.onnx",
+   "model_mb": 21.6,
+   "map50": 0.5293244181988268,
+   "map": 0.27685492764394437,
+   "recall": 0.46020532942892045,
+   "per_class_ap50": {
+    "cone": 0.8526921423299978,
+    "chair": 0.81375,
+    "house": 0.6460174416946809,
+    "barrier": 0.3341625069694555,
+    "TRAFFIC": 0.0
+   },
+   "gt_counts": {
+    "cone": 83,
+    "chair": 9,
+    "house": 21,
+    "barrier": 105,
+    "TRAFFIC": 25
+   },
+   "median_ms": 351.42,
+   "p95_ms": 363.33,
+   "model_ms": 348.06,
+   "first_session_s": 0.254774,
+   "session_s": 0.238193,
+   "provider_used": "CPU FP16"
+  },
+  {
+   "id": "cpu_int8",
+   "device": "CPU",
+   "provider_flag": "cpu",
+   "precision": 0.614827287501978,
+   "model": "best_int8.onnx",
+   "model_mb": 11.6,
+   "map50": 0.5070492088932157,
+   "map": 0.26112074407015035,
+   "recall": 0.3989374333867868,
+   "per_class_ap50": {
+    "cone": 0.8443424689715867,
+    "chair": 0.6783974358974358,
+    "house": 0.6452878787878789,
+    "barrier": 0.36721826080917735,
+    "TRAFFIC": 0.0
+   },
+   "gt_counts": {
+    "cone": 83,
+    "chair": 9,
+    "house": 21,
+    "barrier": 105,
+    "TRAFFIC": 25
+   },
+   "median_ms": 806.48,
+   "p95_ms": 880.38,
+   "model_ms": 802.62,
+   "first_session_s": 0.262513,
+   "session_s": 0.229359,
+   "provider_used": "CPU INT8"
+  },
+  {
+   "id": "cuda_fp32",
+   "device": "GPU (CUDA)",
+   "provider_flag": "cuda",
+   "precision": 0.5675681099188248,
+   "model": "best.onnx",
+   "model_mb": 43.2,
+   "map50": 0.5291766333579416,
+   "map": 0.27353419666105255,
+   "recall": 0.46208879306962486,
+   "per_class_ap50": {
+    "cone": 0.8533152116934928,
+    "chair": 0.81375,
+    "house": 0.6460174416946809,
+    "barrier": 0.3328005134015349,
+    "TRAFFIC": 0.0
+   },
+   "gt_counts": {
+    "cone": 83,
+    "chair": 9,
+    "house": 21,
+    "barrier": 105,
+    "TRAFFIC": 25
+   },
+   "median_ms": 55.09,
+   "p95_ms": 59.08,
+   "model_ms": 51.13,
+   "first_session_s": 0.721175,
+   "session_s": 0.543355,
+   "provider_used": "CUDA FP32"
+  },
+  {
+   "id": "cuda_fp16",
+   "device": "GPU (CUDA)",
+   "provider_flag": "cuda",
+   "precision": 0.5666601176050008,
+   "model": "best_fp16.onnx",
+   "model_mb": 21.6,
+   "map50": 0.5294586760230118,
+   "map": 0.27343626522528836,
+   "recall": 0.4601861629380746,
+   "per_class_ap50": {
+    "cone": 0.8530003428497364,
+    "chair": 0.81375,
+    "house": 0.6460174416946809,
+    "barrier": 0.33452559557064165,
+    "TRAFFIC": 0.0
+   },
+   "gt_counts": {
+    "cone": 83,
+    "chair": 9,
+    "house": 21,
+    "barrier": 105,
+    "TRAFFIC": 25
+   },
+   "median_ms": 36.03,
+   "p95_ms": 39.05,
+   "model_ms": 32.81,
+   "first_session_s": 0.458779,
+   "session_s": 0.426415,
+   "provider_used": "CUDA FP16"
+  },
+  {
+   "id": "cuda_int8",
+   "device": "GPU (CUDA)",
+   "provider_flag": "cuda",
+   "precision": 0.6127675349629149,
+   "model": "best_int8.onnx",
+   "model_mb": 11.6,
+   "map50": 0.5064083877105842,
+   "map": 0.25767131702731555,
+   "recall": 0.39880616349845277,
+   "per_class_ap50": {
+    "cone": 0.8570210645478361,
+    "chair": 0.6836507936507936,
+    "house": 0.641925559947299,
+    "barrier": 0.3494445204069919,
+    "TRAFFIC": 0.0
+   },
+   "gt_counts": {
+    "cone": 83,
+    "chair": 9,
+    "house": 21,
+    "barrier": 105,
+    "TRAFFIC": 25
+   },
+   "median_ms": 92.54,
+   "p95_ms": 103.12,
+   "model_ms": 88.94,
+   "first_session_s": 0.697839,
+   "session_s": 0.583448,
+   "provider_used": "CUDA INT8"
+  },
+  {
+   "id": "trt_fp32",
+   "device": "GPU (TensorRT)",
+   "provider_flag": "tensorrt",
+   "precision": 0.5672327884327546,
+   "model": "best.onnx",
+   "model_mb": 43.2,
+   "map50": 0.5291649547487328,
+   "map": 0.2735204128138156,
+   "recall": 0.4610188333736467,
+   "per_class_ap50": {
+    "cone": 0.8532845539724772,
+    "chair": 0.81375,
+    "house": 0.6460174416946809,
+    "barrier": 0.33277277807650596,
+    "TRAFFIC": 0.0
+   },
+   "gt_counts": {
+    "cone": 83,
+    "chair": 9,
+    "house": 21,
+    "barrier": 105,
+    "TRAFFIC": 25
+   },
+   "median_ms": 45.1,
+   "p95_ms": 50.0,
+   "model_ms": 41.5,
+   "first_session_s": 109.163,
+   "session_s": 2.51797,
+   "provider_used": "TensorRT FP32"
+  },
+  {
+   "id": "trt_fp16",
+   "device": "GPU (TensorRT)",
+   "provider_flag": "tensorrt",
+   "precision": 0.567425836056449,
+   "model": "best.onnx",
+   "model_mb": 43.2,
+   "map50": 0.5294131284099469,
+   "map": 0.27057551141745045,
+   "recall": 0.45846564805286827,
+   "per_class_ap50": {
+    "cone": 0.8527436311459948,
+    "chair": 0.81375,
+    "house": 0.6460174416946809,
+    "barrier": 0.33455456920905946,
+    "TRAFFIC": 0.0
+   },
+   "gt_counts": {
+    "cone": 83,
+    "chair": 9,
+    "house": 21,
+    "barrier": 105,
+    "TRAFFIC": 25
+   },
+   "median_ms": 19.4,
+   "p95_ms": 22.55,
+   "model_ms": 15.65,
+   "first_session_s": 2.27174,
+   "session_s": 1.11314,
+   "provider_used": "TensorRT FP16"
+  },
+  {
+   "id": "trt_int8",
+   "device": "GPU (TensorRT)",
+   "provider_flag": "tensorrt",
+   "precision": 0.6173077560654289,
+   "model": "best_int8.onnx",
+   "model_mb": 11.6,
+   "map50": 0.5001933388652539,
+   "map": 0.25119341003528656,
+   "recall": 0.3978034692364779,
+   "per_class_ap50": {
+    "cone": 0.8497729957466483,
+    "chair": 0.6616666666666666,
+    "house": 0.6465504938817632,
+    "barrier": 0.34297653803119144,
+    "TRAFFIC": 0.0
+   },
+   "gt_counts": {
+    "cone": 83,
+    "chair": 9,
+    "house": 21,
+    "barrier": 105,
+    "TRAFFIC": 25
+   },
+   "median_ms": 30.95,
+   "p95_ms": 34.69,
+   "model_ms": 27.32,
+   "first_session_s": 226.45,
+   "session_s": 8.71205,
+   "provider_used": "TensorRT INT8"
+  }
+ ]
+}

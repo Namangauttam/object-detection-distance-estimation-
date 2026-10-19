@@ -16,6 +16,12 @@ annotation/dataset/train.txt
 annotation/dataset/val.txt
 model_training/splits/
 
+# Benchmark scratch data (held-out frames copy, predictions, temp); results.json is kept
+benchmark/val_images/
+benchmark/preds/
+benchmark/runs/
+benchmark/tmp/
+
 # ---- Model weights and training runs (large; regenerate or share separately) ----
 *.pt
 *.pth

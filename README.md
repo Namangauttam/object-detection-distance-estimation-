@@ -2,6 +2,12 @@
 
 This project detects road obstacles (cones, people, chairs, model houses and barriers) in front-facing vehicle camera video and estimates each object's distance from the camera. It runs in real time on a laptop GPU.
 
+<p align="center">
+  <img src="docs/demo.gif" alt="Live C++ inference: detections labelled with class, confidence and estimated distance; dashed line is the tracked horizon" width="100%">
+  <br>
+  <em>C++ app running TensorRT FP16. Each box shows class | confidence | estimated distance; the dashed line is the horizon tracked from lane lines. Clips are sped up 4×. Distances use an uncalibrated lens, so they are illustrative.</em>
+</p>
+
 It covers the whole pipeline:
 
 1. **Annotation:** frames are extracted from video, pre-labelled with an open-vocabulary model (YOLO-World), then corrected by hand in a local web tool.
@@ -157,7 +163,7 @@ These were measured on the five development clips (1280×720) and need confirmin
 | Validation (held-out `obstacle_course_trial2` clip) | best mAP50 **0.535**, mAP50-95 0.277, precision 0.576, recall 0.469 (epoch 16 of 46, early-stopped) |
 | Stronger classes | cones, people, model houses |
 | Weak classes | barriers (very few labels); chairs (low confidence) |
-| C++ inference speed | **TensorRT FP16: about 9.7 ms per frame** (model 7.2 ms, about 100 FPS); CUDA FP16: about 17.7 ms (model 15.8 ms) |
+| C++ inference speed | **TensorRT FP16: about 9.7 ms per frame** (model 7.2 ms, about 100 FPS); CUDA FP16: about 17.7 ms (model 15.8 ms). Full CPU/GPU × FP32/FP16/INT8 comparison: [benchmark/COMPARISON.md](benchmark/COMPARISON.md) |
 | Distance consistency | size and ground-plane estimates agree within about ±5% on cones (partly by design of the auto camera height); **absolute accuracy not yet validated** |
 | Lens calibration | validated on synthetic data: fx recovered within 0.2%, k1 within 1%, 0.28 px RMS |
 
